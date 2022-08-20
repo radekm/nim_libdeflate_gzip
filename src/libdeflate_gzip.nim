@@ -21,10 +21,8 @@ else:
   compile: "libdeflate_gzip/private/libdeflate/lib/gzip_decompress.c"
 .}
 
-# TODO Create wrapper which automatically frees decompressor with `=destroy`.
 type
-  Decompressor = object
-  DecompressorPtr* = ptr Decompressor
+  DecompressorC = ptr object
 
 type
   Result* = enum
@@ -34,27 +32,40 @@ type
     # ShortOutput = 2
     InsufficientSpace = 3
 
-proc allocDecompressor*(): DecompressorPtr {.importc: "libdeflate_alloc_decompressor".}
+proc allocDecompressorC(): DecompressorC {.importc: "libdeflate_alloc_decompressor".}
 
 proc decompressC(
-  decompressor: DecompressorPtr,
+  decompressor: DecompressorC,
   input: pointer, inputSize: csize_t,
   output: pointer, outputSize: csize_t,
   read: var csize_t, written: var csize_t,
 ): Result {.importc: "libdeflate_gzip_decompress_ex".}
 
-proc deallocDecompressor*(decompressor: DecompressorPtr) {.importc: "libdeflate_free_decompressor".}
+proc deallocDecompressorC(decompressor: DecompressorC) {.importc: "libdeflate_free_decompressor".}
+
+type
+  Decompressor* = object
+    raw: DecompressorC
+
+proc `=destroy`*(decompressor: var Decompressor) =
+  if decompressor.raw != nil:
+    deallocDecompressorC(decompressor.raw)
+
+proc `=copy`*(dest: var Decompressor, src: Decompressor) {.error: "Copying not allowed".}
+
+proc newDecompressor*(): Decompressor =
+  result.raw = allocDecompressorC()
 
 # Using pointers is more flexible than using strings.
 proc decompress*(
-  decompressor: DecompressorPtr,
+  decompressor: Decompressor,
   input: pointer, inputSize: int64,
   output: pointer, outputSize: int64,
   read: var int64, written: var int64,
 ): Result =
   var readC, writtenC = 0.csize_t
   result = decompressC(
-    decompressor,
+    decompressor.raw,
     input, inputSize.csize_t,
     output, outputSize.csize_t,
     readC, writtenC,

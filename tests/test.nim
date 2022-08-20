@@ -15,7 +15,7 @@ const
 
 test "ungzip both members":
   let compressed = readFile(dataDir & "/ab.gz")
-  let d = allocDecompressor()
+  let d = newDecompressor()
   var read, written: int64
 
   var member1 = newString(bufferSize)
@@ -42,21 +42,18 @@ test "ungzip both members":
   member2.setLen(cast[Natural](written))
   check member2 == readFile(dataDir & "/b.txt")
 
-  deallocDecompressor(d)
-
 test "input buffer doesn't hold whole member":
   var compressed = readFile(dataDir & "/b.gz")
   compressed.setLen(compressed.len * 2 div 3)
 
   var decompressed = newString(bufferSize)
-  let d = allocDecompressor()
+  let d = newDecompressor()
   var read, written: int64
   let result = d.decompress(
     compressed.cstring, compressed.len,
     decompressed.cstring, decompressed.len,
     read, written,
   )
-  deallocDecompressor(d)
 
   check result == BadData
 
@@ -64,14 +61,13 @@ test "output buffer is not big enough":
   let compressed = readFile(dataDir & "/b.gz")
 
   var decompressed = newString(getFileSize(dataDir & "/b.txt") - 5)
-  let d = allocDecompressor()
+  let d = newDecompressor()
   var read, written: int64
   let result = d.decompress(
     compressed.cstring, compressed.len,
     decompressed.cstring, decompressed.len,
     read, written,
   )
-  deallocDecompressor(d)
 
   check result == InsufficientSpace
 
