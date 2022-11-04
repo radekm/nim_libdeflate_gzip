@@ -59,9 +59,9 @@ proc newDecompressor*(): Decompressor =
 # Using pointers is more flexible than using strings.
 proc decompress*(
   decompressor: Decompressor,
-  input: pointer, inputSize: int64,
-  output: pointer, outputSize: int64,
-  read: var int64, written: var int64,
+  input: pointer, inputSize: int,
+  output: pointer, outputSize: int,
+  read: var int, written: var int,
 ): Result =
   var readC, writtenC = 0.csize_t
   result = decompressC(
@@ -70,5 +70,5 @@ proc decompress*(
     output, outputSize.csize_t,
     readC, writtenC,
   )
-  read = readC.int64
-  written = writtenC.int64
+  read = readC.int
+  written = writtenC.int

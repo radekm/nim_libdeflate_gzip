@@ -16,7 +16,7 @@ const
 test "ungzip both members":
   let compressed = readFile(dataDir & "/ab.gz")
   let d = newDecompressor()
-  var read, written: int64
+  var read, written: int
 
   var member1 = newString(bufferSize)
   let result1 = d.decompress(
@@ -48,7 +48,7 @@ test "input buffer doesn't hold whole member":
 
   var decompressed = newString(bufferSize)
   let d = newDecompressor()
-  var read, written: int64
+  var read, written: int
   let result = d.decompress(
     compressed.cstring, compressed.len,
     decompressed.cstring, decompressed.len,
@@ -62,7 +62,7 @@ test "output buffer is not big enough":
 
   var decompressed = newString(getFileSize(dataDir & "/b.txt") - 5)
   let d = newDecompressor()
-  var read, written: int64
+  var read, written: int
   let result = d.decompress(
     compressed.cstring, compressed.len,
     decompressed.cstring, decompressed.len,
