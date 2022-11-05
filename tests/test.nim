@@ -72,3 +72,10 @@ test "output buffer is not big enough":
   check result == InsufficientSpace
 
 # TODO Test invalid gzip.
+
+# This check helps to ensure that `Result` enum in Nim which has size `cint`
+# has the same size as the original enum `libdeflate_result`.
+{.emit: """
+#include "libdeflate.h"
+_Static_assert(sizeof(int) == sizeof(enum libdeflate_result));
+""".}

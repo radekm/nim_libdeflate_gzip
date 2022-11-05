@@ -5,7 +5,7 @@ proc currentSourceDir(): string {.compileTime.} =
   result = result[0 ..< result.rfind("/")]
 
 {.passc: "-I" & currentSourceDir() & "/libdeflate_gzip/private/libdeflate",
-  passc: "-std=c99",
+  passc: "-std=c11",
   passc: "-Wall",
   passc: "-D_ANSI_SOURCE"
 .}
@@ -25,7 +25,7 @@ type
   DecompressorC = ptr object
 
 type
-  Result* = enum
+  Result* {.size: sizeof(cint).} = enum
     Success = 0
     BadData = 1
     # This can't happen because `decompress` never specifies how long the output should be.
