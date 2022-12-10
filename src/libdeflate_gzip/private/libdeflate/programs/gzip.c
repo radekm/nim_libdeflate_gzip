@@ -25,6 +25,10 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#ifdef __sun
+#  define __EXTENSIONS__ /* for futimens() */
+#endif
+
 #include "prog_util.h"
 
 #include <errno.h>
@@ -352,7 +356,13 @@ restore_timestamps(struct file_stream *out, const tchar *newpath,
 		   const stat_t *stbuf)
 {
 	int ret;
-#if defined(HAVE_FUTIMENS) && defined(HAVE_STAT_NANOSECOND_PRECISION)
+#ifdef __APPLE__
+	struct timespec times[2] = {
+		{ stbuf->st_atime, stbuf->st_atimensec },
+		{ stbuf->st_mtime, stbuf->st_mtimensec },
+	};
+	ret = futimens(out->fd, times);
+#elif defined(HAVE_FUTIMENS) && defined(HAVE_STAT_NANOSECOND_PRECISION)
 	struct timespec times[2] = {
 		stbuf->st_atim, stbuf->st_mtim,
 	};

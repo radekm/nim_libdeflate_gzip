@@ -32,12 +32,13 @@
 
 #define HAVE_DYNAMIC_ARM_CPU_FEATURES	0
 
-#if defined(__arm__) || defined(__aarch64__)
+#if defined(ARCH_ARM32) || defined(ARCH_ARM64)
 
-#if COMPILER_SUPPORTS_TARGET_FUNCTION_ATTRIBUTE && \
-	!defined(FREESTANDING) && \
-	(defined(__linux__) || \
-	 (defined(__aarch64__) && defined(__APPLE__)))
+#if !defined(FREESTANDING) && \
+    (COMPILER_SUPPORTS_TARGET_FUNCTION_ATTRIBUTE || defined(_MSC_VER)) && \
+    (defined(__linux__) || \
+     (defined(__APPLE__) && defined(ARCH_ARM64)) || \
+     (defined(_WIN32) && defined(ARCH_ARM64)))
 #  undef HAVE_DYNAMIC_ARM_CPU_FEATURES
 #  define HAVE_DYNAMIC_ARM_CPU_FEATURES	1
 #endif
@@ -71,19 +72,18 @@ static inline u32 get_arm_cpu_features(void) { return 0; }
 #endif /* !HAVE_DYNAMIC_ARM_CPU_FEATURES */
 
 /* NEON */
-#ifdef __ARM_NEON
+#if defined(__ARM_NEON) || defined(ARCH_ARM64)
 #  define HAVE_NEON_NATIVE	1
 #else
 #  define HAVE_NEON_NATIVE	0
 #endif
-#define HAVE_NEON_TARGET	HAVE_DYNAMIC_ARM_CPU_FEATURES
 /*
  * With both gcc and clang, NEON intrinsics require that the main target has
  * NEON enabled already.  Exception: with gcc 6.1 and later (r230411 for arm32,
  * r226563 for arm64), hardware floating point support is sufficient.
  */
 #if HAVE_NEON_NATIVE || \
-	(HAVE_NEON_TARGET && GCC_PREREQ(6, 1) && defined(__ARM_FP))
+	(HAVE_DYNAMIC_ARM_CPU_FEATURES && GCC_PREREQ(6, 1) && defined(__ARM_FP))
 #  define HAVE_NEON_INTRIN	1
 #else
 #  define HAVE_NEON_INTRIN	0
@@ -95,18 +95,24 @@ static inline u32 get_arm_cpu_features(void) { return 0; }
 #else
 #  define HAVE_PMULL_NATIVE	0
 #endif
-#define HAVE_PMULL_TARGET \
+#if HAVE_PMULL_NATIVE || \
 	(HAVE_DYNAMIC_ARM_CPU_FEATURES && \
-	 (GCC_PREREQ(6, 1) || __has_builtin(__builtin_neon_vmull_p64)))
-/*
- * On arm32 with clang, the crypto intrinsics (which include pmull) are not
- * defined, even when using -mfpu=crypto-neon-fp-armv8, because clang's
- * <arm_neon.h> puts their definitions behind __aarch64__.
- */
-#if HAVE_NEON_INTRIN && (HAVE_PMULL_NATIVE || HAVE_PMULL_TARGET) && \
-	!(defined(__arm__) && defined(__clang__)) && \
-	CPU_IS_LITTLE_ENDIAN() /* pmull code on big endian is untested */
-#  define HAVE_PMULL_INTRIN	1
+	 (GCC_PREREQ(6, 1) || __has_builtin(__builtin_neon_vmull_p64) || \
+	  defined(_MSC_VER)) && \
+	  /*
+	   * On arm32 with clang, the crypto intrinsics (which include pmull)
+	   * are not defined, even when using -mfpu=crypto-neon-fp-armv8,
+	   * because clang's <arm_neon.h> puts their definitions behind
+	   * __aarch64__.
+	   */ \
+	 !(defined(ARCH_ARM32) && defined(__clang__)))
+#  define HAVE_PMULL_INTRIN	CPU_IS_LITTLE_ENDIAN() /* untested on big endian */
+   /* Work around MSVC's vmull_p64() taking poly64x1_t instead of poly64_t */
+#  ifdef _MSC_VER
+#    define compat_vmull_p64(a, b)  vmull_p64(vcreate_p64(a), vcreate_p64(b))
+#  else
+#    define compat_vmull_p64(a, b)  vmull_p64((a), (b))
+#  endif
 #else
 #  define HAVE_PMULL_INTRIN	0
 #endif
@@ -117,9 +123,6 @@ static inline u32 get_arm_cpu_features(void) { return 0; }
 #else
 #  define HAVE_CRC32_NATIVE	0
 #endif
-#define HAVE_CRC32_TARGET \
-	(HAVE_DYNAMIC_ARM_CPU_FEATURES && \
-	 (GCC_PREREQ(4, 9) || __has_builtin(__builtin_arm_crc32b)))
 /*
  * Support for ARM CRC32 intrinsics when CRC32 instructions are not enabled in
  * the main target has been affected by two gcc bugs, which we must avoid by
@@ -132,15 +135,20 @@ static inline u32 get_arm_cpu_features(void) { return 0; }
  * We use the second set of prerequisites, as they are stricter and we have no
  * way to detect the binutils version directly from a C source file.
  */
-#define HAVE_CRC32_INTRIN \
-	(HAVE_CRC32_NATIVE || (HAVE_CRC32_TARGET && \
-			       (!GCC_PREREQ(1, 0) || \
-				GCC_PREREQ(11, 3) || \
-				(GCC_PREREQ(10, 4) && !GCC_PREREQ(11, 0)) || \
-				(GCC_PREREQ(9, 5) && !GCC_PREREQ(10, 0)))))
+#if HAVE_CRC32_NATIVE || \
+	(HAVE_DYNAMIC_ARM_CPU_FEATURES && \
+	 (__has_builtin(__builtin_arm_crc32b) || \
+	  GCC_PREREQ(11, 3) || \
+	  (GCC_PREREQ(10, 4) && !GCC_PREREQ(11, 0)) || \
+	  (GCC_PREREQ(9, 5) && !GCC_PREREQ(10, 0)) || \
+	  defined(_MSC_VER)))
+#  define HAVE_CRC32_INTRIN	1
+#else
+#  define HAVE_CRC32_INTRIN	0
+#endif
 
 /* SHA3 (needed for the eor3 instruction) */
-#ifdef __aarch64__
+#if defined(ARCH_ARM64) && !defined(_MSC_VER)
 #  ifdef __ARM_FEATURE_SHA3
 #    define HAVE_SHA3_NATIVE	1
 #  else
@@ -149,7 +157,8 @@ static inline u32 get_arm_cpu_features(void) { return 0; }
 #  define HAVE_SHA3_TARGET	(HAVE_DYNAMIC_ARM_CPU_FEATURES && \
 				 (GCC_PREREQ(8, 1) /* r256478 */ || \
 				  CLANG_PREREQ(7, 0, 10010463) /* r338010 */))
-#  define HAVE_SHA3_INTRIN	((HAVE_SHA3_NATIVE || HAVE_SHA3_TARGET) && \
+#  define HAVE_SHA3_INTRIN	(HAVE_NEON_INTRIN && \
+				 (HAVE_SHA3_NATIVE || HAVE_SHA3_TARGET) && \
 				 (GCC_PREREQ(9, 1) /* r268049 */ || \
 				  __has_builtin(__builtin_neon_veor3q_v)))
 #else
@@ -159,20 +168,22 @@ static inline u32 get_arm_cpu_features(void) { return 0; }
 #endif
 
 /* dotprod */
-#ifdef __aarch64__
+#ifdef ARCH_ARM64
 #  ifdef __ARM_FEATURE_DOTPROD
 #    define HAVE_DOTPROD_NATIVE	1
 #  else
 #    define HAVE_DOTPROD_NATIVE	0
 #  endif
-#  define HAVE_DOTPROD_TARGET \
+#  if HAVE_DOTPROD_NATIVE || \
 	(HAVE_DYNAMIC_ARM_CPU_FEATURES && \
-	 (GCC_PREREQ(8, 1) || __has_builtin(__builtin_neon_vdotq_v)))
-#  define HAVE_DOTPROD_INTRIN \
-	(HAVE_NEON_INTRIN && (HAVE_DOTPROD_NATIVE || HAVE_DOTPROD_TARGET))
+	 (GCC_PREREQ(8, 1) || __has_builtin(__builtin_neon_vdotq_v) || \
+	  defined(_MSC_VER)))
+#    define HAVE_DOTPROD_INTRIN	1
+#  else
+#    define HAVE_DOTPROD_INTRIN	0
+#  endif
 #else
 #  define HAVE_DOTPROD_NATIVE	0
-#  define HAVE_DOTPROD_TARGET	0
 #  define HAVE_DOTPROD_INTRIN	0
 #endif
 
@@ -184,7 +195,7 @@ static inline u32 get_arm_cpu_features(void) { return 0; }
  * corresponding __ARM_FEATURE_* macros while including the headers.
  */
 #if HAVE_CRC32_INTRIN && !HAVE_CRC32_NATIVE && \
-	(defined(__clang__) || defined(__arm__))
+	(defined(__clang__) || defined(ARCH_ARM32))
 #  define __ARM_FEATURE_CRC32	1
 #endif
 #if HAVE_SHA3_INTRIN && !HAVE_SHA3_NATIVE && defined(__clang__)
@@ -194,7 +205,7 @@ static inline u32 get_arm_cpu_features(void) { return 0; }
 #  define __ARM_FEATURE_DOTPROD	1
 #endif
 #if HAVE_CRC32_INTRIN && !HAVE_CRC32_NATIVE && \
-	(defined(__clang__) || defined(__arm__))
+	(defined(__clang__) || defined(ARCH_ARM32))
 #  include <arm_acle.h>
 #  undef __ARM_FEATURE_CRC32
 #endif
@@ -207,6 +218,6 @@ static inline u32 get_arm_cpu_features(void) { return 0; }
 #  undef __ARM_FEATURE_DOTPROD
 #endif
 
-#endif /* __arm__ || __aarch64__ */
+#endif /* ARCH_ARM32 || ARCH_ARM64 */
 
 #endif /* LIB_ARM_CPU_FEATURES_H */

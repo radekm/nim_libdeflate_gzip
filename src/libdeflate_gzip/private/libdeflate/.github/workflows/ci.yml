@@ -1,7 +1,5 @@
 name: CI
 on: [pull_request]
-env:
-  CFLAGS: -Werror -DLIBDEFLATE_ENABLE_ASSERTIONS
 
 jobs:
   x86_64-build-and-test:
@@ -37,37 +35,25 @@ jobs:
           githubToken: ${{ github.token }}
           install: |
             apt-get update
-            apt-get install -y build-essential clang llvm libz-dev valgrind
+            apt-get install -y build-essential cmake clang llvm libz-dev
           run: |
-            # Valgrind and ASAN crash on at least s390x, ppc64le, and aarch64
-            # here.  (It's probably something related to the QEMU user-mode
-            # emulation that run-on-arch-action uses.)
-            export SKIP_VALGRIND=1
-            export SKIP_ASAN=1
-
-            case ${{ matrix.arch }} in
-            s390x)
-              # On s390x, in freestanding builds the shared library links to an
-              # external symbol __clzdi2, even when -static-libgcc is used.
-              export SKIP_FREESTANDING=1
-              ;;
-            aarch64)
-              # "ldd: exited with unknown exit code (139)"
-              if [ ${{ matrix.compiler }} = clang ]; then
-                export SKIP_SHARED_LIB=1
-              fi
-              ;;
-            esac
-
-            export CC=${{ matrix.compiler }}
-            scripts/run_tests.sh
+            tests=(regular)
+            if [ ${{matrix.compiler}} = clang ]; then
+                tests+=(ubsan)
+            fi
+            CC=${{matrix.compiler}} scripts/run_tests.sh "${tests[@]}"
 
   macos-build-and-test:
     name: Build and test (macOS)
     runs-on: macos-latest
+    env:
+      CFLAGS: -Werror -DLIBDEFLATE_ENABLE_ASSERTIONS
     steps:
     - uses: actions/checkout@v2
-    - run: make all check
+    - run: cmake -B build -DLIBDEFLATE_BUILD_TESTS=1
+    - run: cmake --build build --verbose
+    - run: DESTDIR=build/install cmake --install build --verbose
+    - run: ctest --test-dir build
 
   windows-msys2-build-and-test:
     name: Build and test (Windows, MSYS2, ${{matrix.sys}})
@@ -80,22 +66,72 @@ jobs:
     defaults:
       run:
         shell: msys2 {0}
+    env:
+      CFLAGS: -Werror -DLIBDEFLATE_ENABLE_ASSERTIONS
     steps:
     - uses: actions/checkout@v2
     - uses: msys2/setup-msys2@v2
       with:
         msystem: ${{matrix.sys}}
         update: true
-        install: make mingw-w64-${{matrix.env}}-cc mingw-w64-${{matrix.env}}-zlib
-    - run: make all check
+        install: >
+          make
+          mingw-w64-${{matrix.env}}-cc
+          mingw-w64-${{matrix.env}}-cmake
+          mingw-w64-${{matrix.env}}-ninja
+          mingw-w64-${{matrix.env}}-zlib
+    # Note: as per the CMake documentation, DESTDIR is unsupported on Windows.
+    - run: cmake -B build -G Ninja -DLIBDEFLATE_BUILD_TESTS=1 -DCMAKE_INSTALL_PREFIX=build\install
+    - run: cmake --build build --verbose
+    - run: cmake --install build --verbose
+    - run: ctest --test-dir build
 
-  windows-msvc-build:
-    name: Build (Windows, Visual Studio)
+  windows-visualstudio-build-and-test:
+    name: Build and test (Windows, Visual Studio ${{matrix.toolset}}, ${{matrix.platform.vs}})
+    strategy:
+      matrix:
+        platform: [ {vs: x64, vcpkg: x64-windows},
+                    {vs: Win32, vcpkg: x86-windows} ]
+        toolset: [v143, ClangCL]
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v2
-    - uses: ilammy/msvc-dev-cmd@v1
-    - run: nmake /f Makefile.msc
+    - uses: microsoft/setup-msbuild@v1.1
+    - run: vcpkg install zlib:${{matrix.platform.vcpkg}}
+    - run: >
+        echo C:\vcpkg\packages\zlib_${{matrix.platform.vcpkg}}\bin
+        | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+    # Note: as per the CMake documentation, DESTDIR is unsupported on Windows.
+    - run: >
+        cmake -B build -G "Visual Studio 17 2022" -T ${{matrix.toolset}}
+        -A ${{matrix.platform.vs}} -DLIBDEFLATE_BUILD_TESTS=1
+        -DCMAKE_C_FLAGS="/W4 /WX /DLIBDEFLATE_ENABLE_ASSERTIONS /IC:\vcpkg\packages\zlib_${{matrix.platform.vcpkg}}\include"
+        -DZLIB_LIBRARY=C:\vcpkg\packages\zlib_${{matrix.platform.vcpkg}}\lib\zlib.lib
+        -DCMAKE_INSTALL_PREFIX=build\install
+    - run: cmake --build build --verbose --config Debug
+    - run: cmake --install build --verbose --config Debug
+    - run: ctest --test-dir build -C Debug
+
+  windows-visualstudio-build:
+    name: Build (Windows, Visual Studio ${{matrix.toolset}}, ${{matrix.platform}})
+    strategy:
+      matrix:
+        platform: [ARM64, ARM]
+        toolset: [v143, ClangCL]
+        exclude: # Exclude unsupported combinations
+        - platform: ARM
+          toolset: ClangCL
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: microsoft/setup-msbuild@v1.1
+    # Note: as per the CMake documentation, DESTDIR is unsupported on Windows.
+    - run: >
+        cmake -B build -G "Visual Studio 17 2022" -T ${{matrix.toolset}}
+        -A ${{matrix.platform}} -DCMAKE_C_FLAGS="/W4 /WX"
+        -DCMAKE_INSTALL_PREFIX=build\install
+    - run: cmake --build build --verbose --config Release
+    - run: cmake --install build --verbose --config Release
 
   run-clang-static-analyzer:
     name: Run clang static analyzer
@@ -106,8 +142,8 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y clang-tools
-    - name: Run clang static analyzer
-      run: make scan-build
+    - run: scan-build cmake -B build -DLIBDEFLATE_BUILD_TESTS=1
+    - run: scan-build cmake --build build --verbose
 
   run-shellcheck:
     name: Run shellcheck
@@ -119,18 +155,50 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y shellcheck
     - name: Run shellcheck
-      run: make shellcheck
+      run: shellcheck scripts/*.sh
 
   cross-compile-for-windows:
     name: Cross compile for Windows
     runs-on: ubuntu-latest
+    env:
+      CFLAGS: -Werror -DLIBDEFLATE_ENABLE_ASSERTIONS
     steps:
     - uses: actions/checkout@v2
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y gcc-mingw-w64-i686 gcc-mingw-w64-x86-64 libz-mingw-w64-dev
+    # Unfortunately Ubuntu doesn't have {i686,x86_64}-w64-mingw32-cmake like
+    # some distros have, so we have to provide our own toolchain files here.
     - name: 32-bit build
-      run: make CC=i686-w64-mingw32-gcc all test_programs
+      run: |
+        scripts/cmake-helper.sh -DLIBDEFLATE_BUILD_TESTS=1 \
+            -DCMAKE_TOOLCHAIN_FILE=scripts/toolchain-i686-w64-mingw32.cmake
+        cmake --build build --verbose
+        DESTDIR=build/install cmake --install build --verbose
     - name: 64-bit build
-      run: make CC=x86_64-w64-mingw32-gcc all test_programs
+      run: |
+        scripts/cmake-helper.sh -DLIBDEFLATE_BUILD_TESTS=1 \
+            -DCMAKE_TOOLCHAIN_FILE=scripts/toolchain-x86_64-w64-mingw32.cmake
+        cmake --build build --verbose
+        DESTDIR=build/install cmake --install build --verbose
+
+  cross-compile-for-android:
+    name: Cross compile for ${{matrix.abi}} Android on ${{matrix.os}}
+    strategy:
+      matrix:
+        os: [ubuntu-18.04, ubuntu-20.04, macos-latest]
+        abi: [armeabi-v7a, arm64-v8a, x86, x86_64]
+    runs-on: ${{matrix.os}}
+    env:
+      CFLAGS: -Werror -DLIBDEFLATE_ENABLE_ASSERTIONS
+    steps:
+    - uses: actions/checkout@v2
+    - run: |
+        scripts/cmake-helper.sh \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME"/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=${{matrix.abi}} \
+            -DANDROID_PLATFORM=28 \
+            -DLIBDEFLATE_BUILD_TESTS=1
+        cmake --build build --verbose
+        DESTDIR=build/install cmake --install build --verbose
