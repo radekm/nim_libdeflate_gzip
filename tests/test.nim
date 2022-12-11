@@ -13,6 +13,26 @@ const
   dataDir = currentSourceDir() & "/data"
   bufferSize = 1000
 
+test "gzip and ungzip string":
+  let c = newCompressor(12)
+  let d = newDecompressor()
+  let str = "Zero Waste Life"
+  let compressed = newString(256)
+  let compressedLen = c.compress(str.cstring, str.len, compressed.cstring, compressed.len)
+  check compressedLen > 0
+
+  let decompressed = newString(256)
+  var read, written: int
+  let result = d.decompress(
+    compressed.cstring, compressedLen,
+    decompressed.cstring, decompressed.len,
+    read, written
+  )
+  check result == Success
+  check read == compressedLen
+  check written == str.len
+  check decompressed.startsWith(str)
+
 test "ungzip both members":
   let compressed = readFile(dataDir & "/ab.gz")
   let d = newDecompressor()

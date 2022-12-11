@@ -18,11 +18,55 @@ when defined(arm) or defined(arm64):
 else:
   {.compile: "libdeflate_gzip/private/libdeflate/lib/x86/cpu_features.c".}
 
-{.compile: "libdeflate_gzip/private/libdeflate/lib/deflate_decompress.c",
+{.compile: "libdeflate_gzip/private/libdeflate/lib/deflate_compress.c",
+  compile: "libdeflate_gzip/private/libdeflate/lib/deflate_decompress.c",
   compile: "libdeflate_gzip/private/libdeflate/lib/utils.c",
   compile: "libdeflate_gzip/private/libdeflate/lib/crc32.c",
-  compile: "libdeflate_gzip/private/libdeflate/lib/gzip_decompress.c"
+  compile: "libdeflate_gzip/private/libdeflate/lib/gzip_compress.c",
+  compile: "libdeflate_gzip/private/libdeflate/lib/gzip_decompress.c",
 .}
+
+type
+  CompressorC = ptr object
+
+proc allocCompressorC(
+  compressionLevel: cint
+): CompressorC {.importc: "libdeflate_alloc_compressor".}
+
+# Returns 0 on failure.
+# `output` buffer must be slightly bigger than actual compressed output.
+proc compressC(
+  compressor: CompressorC,
+  input: pointer, inputSize: csize_t,
+  output: pointer, outputSize: csize_t,
+): csize_t {.importc: "libdeflate_gzip_compress".}
+
+proc deallocCompressorC(compressor: CompressorC) {.importc: "libdeflate_free_compressor".}
+
+type
+  Compressor* = object
+    raw: CompressorC
+
+proc `=destroy`*(compressor: var Compressor) =
+  if compressor.raw != nil:
+    deallocCompressorC(compressor.raw)
+
+proc `=copy`*(dest: var Compressor, src: Compressor) {.error: "Copying not allowed".}
+
+proc newCompressor*(compressionLevel: int32): Compressor =
+  result.raw = allocCompressorC(compressionLevel)
+
+# Using pointers is more flexible than using strings.
+proc compress*(
+  compressor: Compressor,
+  input: pointer, inputSize: int,
+  output: pointer, outputSize: int,
+): int =
+  result = compressC(
+    compressor.raw,
+    input, inputSize.csize_t,
+    output, outputSize.csize_t,
+  ).int
 
 type
   DecompressorC = ptr object
