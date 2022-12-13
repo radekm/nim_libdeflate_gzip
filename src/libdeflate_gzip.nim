@@ -50,11 +50,14 @@ type
 proc `=destroy`*(compressor: var Compressor) =
   if compressor.raw != nil:
     deallocCompressorC(compressor.raw)
+    compressor.raw = nil
 
 proc `=copy`*(dest: var Compressor, src: Compressor) {.error: "Copying not allowed".}
 
 proc newCompressor*(compressionLevel: int32): Compressor =
   result.raw = allocCompressorC(compressionLevel)
+  if result.raw == nil:
+    raise newException(CatchableError, "Not enough memory to create compressor")
 
 # Using pointers is more flexible than using strings.
 proc compress*(
@@ -97,11 +100,14 @@ type
 proc `=destroy`*(decompressor: var Decompressor) =
   if decompressor.raw != nil:
     deallocDecompressorC(decompressor.raw)
+    decompressor.raw = nil
 
 proc `=copy`*(dest: var Decompressor, src: Decompressor) {.error: "Copying not allowed".}
 
 proc newDecompressor*(): Decompressor =
   result.raw = allocDecompressorC()
+  if result.raw == nil:
+    raise newException(CatchableError, "Not enough memory to create decompressor")
 
 # Using pointers is more flexible than using strings.
 proc decompress*(
