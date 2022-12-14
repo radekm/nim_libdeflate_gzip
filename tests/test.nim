@@ -100,7 +100,7 @@ iterator decompressGzipMembers(
   compressed: Stream,
   maxCompressedMemberLen: int = 2 * 1024 * 1024,
   maxDecompressedMemberLen: int = 8 * 1024 * 1024,
-): tuple[decompressed: string, decompressedLen: int, posInCompressed: Slice[int]] =
+): tuple[decompressed: cstring, decompressedLen: int, posInCompressed: Slice[int]] =
   if maxCompressedMemberLen < 1 or maxDecompressedMemberLen < 1:
     raise newException(CatchableError, "Invalid max buffer len")
 
@@ -132,7 +132,7 @@ iterator decompressGzipMembers(
       case status:
         of Success:
           yield (
-            decompressed: outBuffer,
+            decompressed: outBuffer.cstring,
             decompressedLen: written.int,
             posInCompressed: pos .. pos + read.int - 1,
           )
