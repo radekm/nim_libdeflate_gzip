@@ -1,9 +1,17 @@
 include(CheckSymbolExists)
 
 # Check for the availability of OS functionality and generate the config.h file.
+#
+# Keep CMAKE_REQUIRED_DEFINITIONS in sync with what prog_util.h does.
+if(LINUX)
+    set(CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L)
+elseif(APPLE)
+    set(CMAKE_REQUIRED_DEFINITIONS -D_DARWIN_C_SOURCE -U_POSIX_C_SOURCE)
+else()
+    set(CMAKE_REQUIRED_DEFINITIONS -U_POSIX_C_SOURCE)
+endif()
 check_symbol_exists(clock_gettime "time.h" HAVE_CLOCK_GETTIME)
 check_symbol_exists(futimens "fcntl.h;sys/stat.h" HAVE_FUTIMENS)
-check_symbol_exists(futimes "sys/time.h" HAVE_FUTIMES)
 check_symbol_exists(posix_fadvise "fcntl.h" HAVE_POSIX_FADVISE)
 check_symbol_exists(posix_madvise "sys/mman.h" HAVE_POSIX_MADVISE)
 check_c_source_compiles("#include <sys/types.h>
@@ -30,10 +38,6 @@ if(WIN32)
     else()
         target_compile_definitions(libdeflate_prog_utils PUBLIC UNICODE _UNICODE)
     endif()
-endif()
-if(NOT MSVC)
-    target_compile_definitions(libdeflate_prog_utils PUBLIC
-        _POSIX_C_SOURCE=200809L _FILE_OFFSET_BITS=64)
 endif()
 
 # Build and install libdeflate-gzip and its alias libdeflate-gunzip.
@@ -87,6 +91,7 @@ if(LIBDEFLATE_BUILD_TESTS)
         test_checksums
         test_custom_malloc
         test_incomplete_codes
+        test_invalid_streams
         test_litrunlen_overflow
         test_overread
         test_slow_decompression
