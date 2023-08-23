@@ -25,16 +25,6 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef _WIN32
-/* for MAP_ANONYMOUS or MAP_ANON, which unfortunately aren't part of POSIX... */
-#  undef _POSIX_C_SOURCE
-#  ifdef __APPLE__
-#    define _DARWIN_C_SOURCE
-#  elif defined(__linux__)
-#    define _GNU_SOURCE
-#  endif
-#endif
-
 #include "test_util.h"
 
 #include <fcntl.h>
@@ -158,7 +148,9 @@ timer_ticks(void)
 
 	QueryPerformanceCounter(&count);
 	return count.QuadPart;
-#elif defined(HAVE_CLOCK_GETTIME)
+#elif defined(HAVE_CLOCK_GETTIME) || \
+	/* fallback detection method for direct compilation */ \
+	(!defined(HAVE_CONFIG_H) && defined(CLOCK_MONOTONIC))
 	struct timespec ts;
 
 	clock_gettime(CLOCK_MONOTONIC, &ts);

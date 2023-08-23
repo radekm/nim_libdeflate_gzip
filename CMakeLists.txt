@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.7)
 
 # Default to a release build.
-if(NOT CMAKE_BUILD_TYPE)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     message(STATUS "No build type selected; defaulting to Release")
-    set(CMAKE_BUILD_TYPE Release)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build" FORCE)
 endif()
 
 # With MSVC, don't automatically append /W3 to the compiler flags.
@@ -38,7 +38,7 @@ option(LIBDEFLATE_GZIP_SUPPORT "Support the gzip format" ON)
 option(LIBDEFLATE_FREESTANDING
        "Build a freestanding library, i.e. a library that doesn't link to any
        libc functions like malloc(), free(), and memcpy().  Library users will
-       need to call libdeflate_set_memory_allocator()." OFF)
+       need to provide a custom memory allocator." OFF)
 option(LIBDEFLATE_BUILD_GZIP "Build the libdeflate-gzip program" ON)
 option(LIBDEFLATE_BUILD_TESTS "Build the test programs" OFF)
 option(LIBDEFLATE_USE_SHARED_LIB
@@ -157,10 +157,6 @@ if(LIBDEFLATE_GZIP_SUPPORT)
     if(LIBDEFLATE_DECOMPRESSION_SUPPORT)
         list(APPEND LIB_SOURCES lib/gzip_decompress.c)
     endif()
-endif()
-
-if(NOT MSVC)
-    list(APPEND LIB_COMPILE_DEFINITIONS _ANSI_SOURCE)
 endif()
 
 if(LIBDEFLATE_FREESTANDING)

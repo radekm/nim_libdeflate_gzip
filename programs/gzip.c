@@ -25,14 +25,9 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifdef __sun
-#  define __EXTENSIONS__ /* for futimens() */
-#endif
-
 #include "prog_util.h"
 
 #include <errno.h>
-#include <sys/types.h>
 #include <sys/stat.h>
 #ifdef _WIN32
 #  include <sys/utime.h>
@@ -357,26 +352,18 @@ restore_timestamps(struct file_stream *out, const tchar *newpath,
 {
 	int ret;
 #ifdef __APPLE__
-	struct timespec times[2] = {
-		{ stbuf->st_atime, stbuf->st_atimensec },
-		{ stbuf->st_mtime, stbuf->st_mtimensec },
-	};
+	struct timespec times[2] = { stbuf->st_atimespec, stbuf->st_mtimespec };
+
 	ret = futimens(out->fd, times);
-#elif defined(HAVE_FUTIMENS) && defined(HAVE_STAT_NANOSECOND_PRECISION)
-	struct timespec times[2] = {
-		stbuf->st_atim, stbuf->st_mtim,
-	};
+#elif (defined(HAVE_FUTIMENS) && defined(HAVE_STAT_NANOSECOND_PRECISION)) || \
+	/* fallback detection method for direct compilation */ \
+	(!defined(HAVE_CONFIG_H) && defined(UTIME_NOW))
+	struct timespec times[2] = { stbuf->st_atim, stbuf->st_mtim };
+
 	ret = futimens(out->fd, times);
-#elif defined(HAVE_FUTIMES) && defined(HAVE_STAT_NANOSECOND_PRECISION)
-	struct timeval times[2] = {
-		{ stbuf->st_atim.tv_sec, stbuf->st_atim.tv_nsec / 1000, },
-		{ stbuf->st_mtim.tv_sec, stbuf->st_mtim.tv_nsec / 1000, },
-	};
-	ret = futimes(out->fd, times);
 #else
-	struct tutimbuf times = {
-		stbuf->st_atime, stbuf->st_mtime,
-	};
+	struct tutimbuf times = { stbuf->st_atime, stbuf->st_mtime };
+
 	ret = tutime(newpath, &times);
 #endif
 	if (ret != 0)
