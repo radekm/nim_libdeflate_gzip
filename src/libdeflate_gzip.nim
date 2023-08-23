@@ -9,8 +9,7 @@ proc currentSourceDir(): string {.compileTime.} =
 
 {.passc: "-I" & currentSourceDir() & "/libdeflate_gzip/private/libdeflate",
   passc: "-std=c11",
-  passc: "-Wall",
-  passc: "-D_ANSI_SOURCE"
+  passc: "-Wall"
 .}
 
 when defined(arm) or defined(arm64):
@@ -47,10 +46,9 @@ type
   Compressor* = object
     raw: CompressorC
 
-proc `=destroy`*(compressor: var Compressor) =
+proc `=destroy`*(compressor: Compressor) =
   if compressor.raw != nil:
     deallocCompressorC(compressor.raw)
-    compressor.raw = nil
 
 proc `=copy`*(dest: var Compressor, src: Compressor) {.error: "Copying not allowed".}
 
@@ -97,10 +95,9 @@ type
   Decompressor* = object
     raw: DecompressorC
 
-proc `=destroy`*(decompressor: var Decompressor) =
+proc `=destroy`*(decompressor: Decompressor) =
   if decompressor.raw != nil:
     deallocDecompressorC(decompressor.raw)
-    decompressor.raw = nil
 
 proc `=copy`*(dest: var Decompressor, src: Decompressor) {.error: "Copying not allowed".}
 

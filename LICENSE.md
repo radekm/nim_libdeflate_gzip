@@ -1,4 +1,4 @@
-Copyright © 2022 Radek Micek
+Copyright © 2022-2023 Radek Micek
 
 This program is distributed under the terms of the MIT License
 (included below).
