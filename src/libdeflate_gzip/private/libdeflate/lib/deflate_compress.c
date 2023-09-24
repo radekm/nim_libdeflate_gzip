@@ -1332,7 +1332,6 @@ deflate_make_huffman_code(unsigned num_syms, unsigned max_codeword_len,
 	 * eventually return the codewords.
 	 */
 	num_used_syms = sort_symbols(num_syms, freqs, lens, A);
-
 	/*
 	 * 'num_used_syms' is the number of symbols with nonzero frequency.
 	 * This may be less than @num_syms.  'num_used_syms' is also the number
@@ -1341,30 +1340,34 @@ deflate_make_huffman_code(unsigned num_syms, unsigned max_codeword_len,
 	 */
 
 	/*
-	 * Handle special cases where only 0 or 1 symbols were used (had nonzero
-	 * frequency).
+	 * A complete Huffman code must contain at least 2 codewords.  Yet, it's
+	 * possible that fewer than 2 symbols were used.  When this happens,
+	 * it's usually for the offset code (0-1 symbols used).  But it's also
+	 * theoretically possible for the litlen and pre codes (1 symbol used).
+	 *
+	 * The DEFLATE RFC explicitly allows the offset code to contain just 1
+	 * codeword, or even be completely empty.  But it's silent about the
+	 * other codes.  It also doesn't say whether, in the 1-codeword case,
+	 * the codeword (which it says must be 1 bit) is '0' or '1'.
+	 *
+	 * In any case, some DEFLATE decompressors reject these cases.  zlib
+	 * generally allows them, but it does reject precodes that have just 1
+	 * codeword.  More problematically, zlib v1.2.1 and earlier rejected
+	 * empty offset codes, and this behavior can also be seen in Windows
+	 * Explorer's ZIP unpacker (supposedly even still in Windows 11).
+	 *
+	 * Other DEFLATE compressors, including zlib, always send at least 2
+	 * codewords in order to make a complete Huffman code.  Therefore, this
+	 * is a case where practice does not entirely match the specification.
+	 * We follow practice by generating 2 codewords of length 1: codeword
+	 * '0' for symbol 0, and codeword '1' for another symbol -- the used
+	 * symbol if it exists and is not symbol 0, otherwise symbol 1.  This
+	 * does worsen the compression ratio by having to send an unnecessary
+	 * offset codeword length.  But this only affects rare cases such as
+	 * blocks containing all literals, and it only makes a tiny difference.
 	 */
-
-	if (unlikely(num_used_syms == 0)) {
-		/*
-		 * Code is empty.  sort_symbols() already set all lengths to 0,
-		 * so there is nothing more to do.
-		 */
-		return;
-	}
-
-	if (unlikely(num_used_syms == 1)) {
-		/*
-		 * Only one symbol was used, so we only need one codeword.  But
-		 * two codewords are needed to form the smallest complete
-		 * Huffman code, which uses codewords 0 and 1.  Therefore, we
-		 * choose another symbol to which to assign a codeword.  We use
-		 * 0 (if the used symbol is not 0) or 1 (if the used symbol is
-		 * 0).  In either case, the lesser-valued symbol must be
-		 * assigned codeword 0 so that the resulting code is canonical.
-		 */
-
-		unsigned sym = A[0] & SYMBOL_MASK;
+	if (unlikely(num_used_syms < 2)) {
+		unsigned sym = num_used_syms ? (A[0] & SYMBOL_MASK) : 0;
 		unsigned nonzero_idx = sym ? sym : 1;
 
 		codewords[0] = 0;
@@ -4077,7 +4080,6 @@ LIBDEFLATEAPI size_t
 libdeflate_deflate_compress_bound(struct libdeflate_compressor *c,
 				  size_t in_nbytes)
 {
-	size_t bound = 0;
 	size_t max_blocks;
 
 	/*
@@ -4094,10 +4096,12 @@ libdeflate_deflate_compress_bound(struct libdeflate_compressor *c,
 	 */
 
 	/*
-	 * The minimum length that is passed to deflate_flush_block() is
-	 * MIN_BLOCK_LENGTH bytes, except for the final block if needed.
+	 * Calculate the maximum number of uncompressed blocks that the
+	 * compressor can use for 'in_nbytes' of data.
 	 *
-	 * If deflate_flush_block() decides to use an uncompressed block, it
+	 * The minimum length that is passed to deflate_flush_block() is
+	 * MIN_BLOCK_LENGTH bytes, except for the final block if needed.  If
+	 * deflate_flush_block() decides to use an uncompressed block, it
 	 * actually will (in general) output a series of uncompressed blocks in
 	 * order to stay within the UINT16_MAX limit of DEFLATE.  But this can
 	 * be disregarded here as long as '2 * MIN_BLOCK_LENGTH <= UINT16_MAX',
@@ -4116,11 +4120,8 @@ libdeflate_deflate_compress_bound(struct libdeflate_compressor *c,
 	 * BTYPE, LEN, and NLEN fields.  (For the reason explained earlier, the
 	 * alignment bits at the very start of the block can be disregarded;
 	 * they would otherwise increase the overhead to 6 bytes per block.)
+	 * Therefore, the maximum number of overhead bytes is '5 * max_blocks'.
+	 * To get the final bound, add the number of uncompressed bytes.
 	 */
-	bound += 5 * max_blocks;
-
-	/* Account for the data itself, stored uncompressed. */
-	bound += in_nbytes;
-
-	return bound;
+	return (5 * max_blocks) + in_nbytes;
 }
